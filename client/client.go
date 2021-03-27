@@ -8,6 +8,7 @@ import (
 	urllib "net/url"
 	"time"
 
+	"github.com/hslatman/greynoise-go/logger"
 	"github.com/hslatman/greynoise-go/responses"
 )
 
@@ -18,7 +19,7 @@ const (
 	defaultUserAgent         = "https://github.com/hslatman/greynoise-go"
 	defaultContentTypeHeader = "application/json"
 	defaultAcceptHeader      = "application/json"
-	defaultTimeOut           = 30 * time.Second
+	defaultTimeout           = 30 * time.Second
 )
 
 const (
@@ -28,6 +29,8 @@ const (
 	// TODO: other endpoints
 )
 
+type ClientModifier func(c *Client)
+
 type Client struct {
 	key               string
 	httpClient        *http.Client
@@ -35,9 +38,11 @@ type Client struct {
 	userAgent         string
 	contentTypeHeader string
 	acceptHeader      string
+	modifiers         []ClientModifier
+	logger            logger.Logger
 }
 
-func New(key string) (*Client, error) {
+func New(key string, modifiers ...ClientModifier) (*Client, error) {
 
 	baseURL, err := urllib.Parse(defaultBaseURL)
 	if err != nil {
@@ -45,7 +50,7 @@ func New(key string) (*Client, error) {
 	}
 
 	httpClient := http.DefaultClient
-	httpClient.Timeout = defaultTimeOut
+	httpClient.Timeout = defaultTimeout
 
 	client := &Client{
 		key:               key,
@@ -56,7 +61,24 @@ func New(key string) (*Client, error) {
 		acceptHeader:      defaultAcceptHeader,
 	}
 
+	client.modifiers = append(client.modifiers, modifiers...)
+	for _, modifier := range client.modifiers {
+		modifier(client)
+	}
+
 	return client, nil
+}
+
+func WithLogger(logger logger.Logger) ClientModifier {
+	return func(c *Client) {
+		c.logger = logger
+	}
+}
+
+func WithTimeout(timeout time.Duration) ClientModifier {
+	return func(c *Client) {
+		c.httpClient.Timeout = timeout
+	}
 }
 
 func (c *Client) Ping() (bool, error) {
@@ -115,5 +137,22 @@ func (c *Client) execute(method string, url string, body interface{}) (*http.Res
 	request.Header.Add("User-Agent", c.userAgent)
 	request.Header.Add("key", c.key)
 
+	// TODO: make this more informative?
+	c.debug("executing request: " + request.URL.String())
+
 	return c.httpClient.Do(request)
+}
+
+func (c *Client) info(message string) {
+	if c.logger == nil {
+		return
+	}
+	c.logger.Info(message)
+}
+
+func (c *Client) debug(message string) {
+	if c.logger == nil {
+		return
+	}
+	c.logger.Debug(message)
 }
